@@ -1,5 +1,7 @@
 # GitHub Contributions Graph Drawer
 
+![GitHubGraphDraw](images/gh-draw.png)
+
 This script allows you to "draw" text on your GitHub contributions graph by creating commits with specific dates in the past. Each commit marks a contribution on the GitHub calendar, thus forming pixel-like letters over time.
 
 ---
