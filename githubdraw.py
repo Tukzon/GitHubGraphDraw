@@ -6,11 +6,18 @@ import sys
 import subprocess
 import argparse
 import random
+import logging
 from datetime import datetime, timedelta
+from typing import List
 
-# =========================================================================
+# -----------------------------------------------------------------------------
+# Global configuration
+# -----------------------------------------------------------------------------
+COMMIT_HOUR: str = "12:00:00"  # Fixed commit hour (can be parameterized)
+
+# =============================================================================
 # LETTER MAP DICTIONARY
-# =========================================================================
+# =============================================================================
 LETTER_MAP = {
     'A': ["  #   ", " # #  ", "#   # ", "##### ", "#   # ", "#   # ", "#   # "],
     'B': ["####  ", "#   # ", "#   # ", "####  ", "#   # ", "#   # ", "####  "],
@@ -87,143 +94,228 @@ LETTER_MAP = {
     '¢': ["  #   ", " #####", "#     ", "#     ", "#     ", " #####", "  #   "]
 }
 
-# =========================================================================
-# MAIN FUNCTIONS
-# =========================================================================
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
-def generate_word_matrix(word):
+def run_git_command(cmd: List[str], dry_run: bool = False) -> None:
     """
-    Given a string 'word', this function generates a matrix of 7 rows and 
-    (5 + 1) * len(word) - 1 columns.
-    - Each letter is 5 columns wide, and there is 1 blank column separating letters.
-    - For example: If there are n letters, each one contributes 5 columns, plus 1 blank column
-      after each letter except for the last one. So total columns = n*5 + (n-1)*1 = n*6 - 1.
+    Executes a git command using subprocess.run.
+    If dry_run is True, only logs the command without executing it.
     """
-    # Convert the input word to uppercase to search in LETTER_MAP
+    if dry_run:
+        logging.info(f"[Dry-run] Command: {' '.join(cmd)}")
+    else:
+        logging.debug(f"Executing command: {' '.join(cmd)}")
+        subprocess.run(cmd, check=True)
+
+def check_git_repo(dry_run: bool = False) -> None:
+    """
+    Checks if the current directory is a git repository.
+    Exits the script with an error if not.
+    """
+    if dry_run:
+        logging.info("[Dry-run] Git repository check skipped.")
+        return
+    try:
+        subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+    except subprocess.CalledProcessError:
+        logging.error("Current directory is not a git repository. Run 'git init' to initialize it.")
+        sys.exit(1)
+
+# =============================================================================
+# Main Matrix Generators
+# =============================================================================
+
+def generate_word_matrix(word: str) -> List[List[str]]:
+    """
+    Given a word, generates a 2D matrix representing the word using
+    pixel-like characters. Each letter occupies 5 columns and is separated by
+    1 blank column.
+    """
     word = word.upper()
-
-    # Calculate the total number of columns
-    total_columns = len(word)*6 - 1
+    total_columns = len(word) * 6 - 1
     rows = 7
-
-    # Initialize the final matrix with blank spaces
     final_matrix = [[" " for _ in range(total_columns)] for _ in range(rows)]
-
     current_col = 0
+
     for i, letter in enumerate(word):
-        # Retrieve the letter definition from LETTER_MAP if it exists
-        if letter in LETTER_MAP:
-            letter_pixels = LETTER_MAP[letter]
-        else:
-            # If the letter is not defined, use a 7x5 blank placeholder
-            letter_pixels = ["     " for _ in range(rows)]
-        
-        # Place the letter onto the final matrix at the current column offset
+        # Get the letter representation; if not available, use a blank placeholder.
+        letter_pixels = LETTER_MAP.get(letter, ["     "] * rows)
         for r in range(rows):
             for c in range(5):
                 final_matrix[r][current_col + c] = letter_pixels[r][c]
-
-        # Add a blank column as separator (except after the last letter)
-        if i < len(word) - 1:
-            current_col += 6  # 5 columns for the letter + 1 space
-        else:
-            current_col += 5  # on the last letter, no extra blank space needed
+        current_col += 6 if i < len(word) - 1 else 5
 
     return final_matrix
 
+# =============================================================================
+# Git Commit Functions
+# =============================================================================
 
-def make_commit_for_day(date_str, commits=1):
+def make_commit_for_day(date_str: str, commits: int = 1, dry_run: bool = False, filename: str = "progress.txt") -> None:
     """
-    Performs a given number of commits 'commits' on the specified date_str (YYYY-MM-DD).
-    It appends lines to 'progress.txt' and commits with a forced date (via --date).
+    Makes a specified number of commits on the given date.
+    For each commit, appends a line to the file (filename) and performs a git commit with a forced date.
     """
     for i in range(commits):
-        # Append a line to 'progress.txt' to ensure there's a change to commit
-        with open("progress.txt", "a", encoding="utf-8") as f:
-            f.write(f"Commit {i+1} on {date_str}\n")
+        try:
+            with open(filename, "a", encoding="utf-8") as f:
+                f.write(f"Commit {i+1} on {date_str}\n")
+        except Exception as e:
+            logging.error(f"Error writing to {filename}: {e}")
+            sys.exit(1)
 
-        # Stage the changes in 'progress.txt'
-        subprocess.run([
-            "git", "add", "progress.txt"
-        ])
-
-        # Prepare the commit message
+        # Stage the file and make the commit
+        run_git_command(["git", "add", filename], dry_run=dry_run)
         commit_message = f"Automatic commit on {date_str} ({i+1} of {commits})"
-        # Perform the commit, forcing the date
-        subprocess.run([
-            "git", "commit",
-            "--date", date_str + "T12:00:00",  # Fixed hour to avoid ambiguity
-            "-m", commit_message
-        ], check=True)
+        commit_date_str = f"{date_str}T{COMMIT_HOUR}"
+        run_git_command(
+            ["git", "commit", "--date", commit_date_str, "-m", commit_message],
+            dry_run=dry_run
+        )
 
+# =============================================================================
+# Drawing Functions
+# =============================================================================
 
-def draw_on_github(word, start_date, mode="max"):
+def draw_on_github(word: str, start_date: datetime, mode: str = "max", dry_run: bool = False, filename: str = "progress.txt") -> None:
     """
-    Generates the necessary commits to 'draw' the specified word on the GitHub contributions graph,
-    starting from 'start_date' (a datetime object). The 'mode' can be 'max' or 'random'.
-    
-    - start_date is treated as column 0, row 0 (Sunday).
-    - For each column (week) and each row (day), if there's a '#' in the matrix,
-      the script will create 5 commits ('max') or a random number (1-5) of commits ('random').
+    Generates the commits needed to 'draw' the specified word on the GitHub contributions graph.
+    Each column of the matrix corresponds to a week (column * 7 + row days offset).
     """
-    # Generate the 2D matrix for the word
     matrix = generate_word_matrix(word)
+    rows = len(matrix)
+    cols = len(matrix[0])
 
-    rows = len(matrix)         # Typically 7
-    cols = len(matrix[0])      # Depends on the length of the word
-
-    # Iterate over columns (which represent weeks)
     for col in range(cols):
-        # Iterate over rows (which represent days, Sunday to Saturday)
         for row in range(rows):
             if matrix[row][col] == '#':
-                if mode == "max":
-                    # Use 5 commits for a strong green color
-                    num_commits = 5
-                else:
-                    # Use a random number between 1 and 5
-                    num_commits = random.randint(1, 5)
-
-                # Calculate the date based on start_date plus the offset
-                # offset_days = number of days from start_date = col*7 + row
+                # In max mode, 10 commits per day; in random mode, random between 1 and 10.
+                num_commits = 10 if mode == "max" else random.randint(1, 10)
                 offset_days = col * 7 + row
                 commit_date = start_date + timedelta(days=offset_days)
-
-                # Format the date as YYYY-MM-DD
                 date_str = commit_date.strftime("%Y-%m-%d")
-                make_commit_for_day(date_str, commits=num_commits)
+                logging.info(f"Date: {date_str} - Commits: {num_commits}")
+                make_commit_for_day(date_str, commits=num_commits, dry_run=dry_run, filename=filename)
 
+def draw_full_on_github(start_date: datetime, mode: str = "max", dry_run: bool = False, filename: str = "progress.txt", weeks: int = 52) -> None:
+    """
+    In full mode, generates commits for every day in the contributions graph grid.
+    By default, it fills 52 weeks (7 days each) starting from start_date.
+    The commit intensity (max or random) is applied accordingly.
+    """
+    rows = 7
+    cols = weeks  # Each column represents one week.
+    for col in range(cols):
+        for row in range(rows):
+            num_commits = 10 if mode == "max" else random.randint(1, 10)
+            offset_days = col * 7 + row
+            commit_date = start_date + timedelta(days=offset_days)
+            date_str = commit_date.strftime("%Y-%m-%d")
+            logging.info(f"Date: {date_str} - Commits: {num_commits}")
+            make_commit_for_day(date_str, commits=num_commits, dry_run=dry_run, filename=filename)
 
+# =============================================================================
+# Main Function
+# =============================================================================
 
-def main():
-    parser = argparse.ArgumentParser(description="Draw a word on the GitHub contributions graph.")
-    parser.add_argument("word", help="Word or phrase to draw (no quotes needed).")
-    parser.add_argument("--mode", choices=["max", "random"], default="max",
-                        help="Mode for commits: 'max' = 5 commits per day, 'random' = random number (1-5).")
-    parser.add_argument("--start-date", default=None,
-                        help="Start date in YYYY-MM-DD format. If not specified, it defaults to 52 weeks ago.")
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Draw a word on your GitHub contributions graph, or fill the entire grid in full mode."
+    )
+    parser.add_argument("word", nargs="?", help="Word or phrase to draw (ignored in full mode).")
+    parser.add_argument(
+        "--mode",
+        choices=["max", "random"],
+        default="max",
+        help="Commit mode: 'max' creates 10 commits per day, 'random' creates 1-10 commits per day."
+    )
+    parser.add_argument(
+        "--start-date",
+        default=None,
+        help="Start date in YYYY-MM-DD format. Defaults to 52 weeks ago if not specified."
+    )
+    parser.add_argument(
+        "--file",
+        default="progress.txt",
+        help="File to modify for creating commits."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate execution without making actual changes to git."
+    )
+    parser.add_argument(
+        "--commit-hour",
+        default=COMMIT_HOUR,
+        help="Commit hour in HH:MM:SS format (default: 12:00:00)."
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Display detailed logging information."
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Enable full mode: perform commits on every day in the contributions graph grid starting from start_date."
+    )
+    # Optional parameter to adjust the number of weeks in full mode (default: 52 weeks)
+    parser.add_argument(
+        "--weeks",
+        type=int,
+        default=52,
+        help="Number of weeks (columns) to fill in full mode. Default is 52."
+    )
     args = parser.parse_args()
 
-    # If progress.txt does not exist, create it
-    if not os.path.exists("progress.txt"):
-        with open("progress.txt", "w", encoding="utf-8") as f:
-            f.write("Progress file to draw on the GitHub graph.\n")
+    # Configure logging
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    # If no start-date is provided, use 52 weeks (364 days) ago from today
+    # Update global commit hour if provided
+    global COMMIT_HOUR
+    COMMIT_HOUR = args.commit_hour
+
+    # Check if current directory is a git repository
+    check_git_repo(dry_run=args.dry_run)
+
+    # Create the progress file if it doesn't exist
+    if not os.path.exists(args.file):
+        try:
+            with open(args.file, "w", encoding="utf-8") as f:
+                f.write("Progress file for drawing on the GitHub contributions graph.\n")
+        except Exception as e:
+            logging.error(f"Error creating file {args.file}: {e}")
+            sys.exit(1)
+
+    # Process the start date
     if args.start_date:
         try:
             start_date = datetime.strptime(args.start_date, "%Y-%m-%d")
         except ValueError:
-            print("ERROR: Invalid date format. Use YYYY-MM-DD.")
+            logging.error("ERROR: Invalid date format. Use YYYY-MM-DD.")
             sys.exit(1)
     else:
         start_date = datetime.now() - timedelta(days=364)
 
-    # Call the main drawing function
-    draw_on_github(args.word, start_date, mode=args.mode)
-
-    print("Process completed. Now you can run 'git push' to push the commits to your remote repository.")
-
+    logging.info("Starting the drawing process...")
+    if args.full:
+        # Full mode: commit for every day in the grid (default 52 weeks x 7 days).
+        draw_full_on_github(start_date, mode=args.mode, dry_run=args.dry_run, filename=args.file, weeks=args.weeks)
+    else:
+        # Word mode: require a word to draw.
+        if not args.word:
+            logging.error("ERROR: No word provided. Please specify a word or use --full mode.")
+            sys.exit(1)
+        draw_on_github(args.word, start_date, mode=args.mode, dry_run=args.dry_run, filename=args.file)
+    logging.info("Process completed. Now you can run 'git push' to push the commits to your remote repository.")
 
 if __name__ == "__main__":
     main()

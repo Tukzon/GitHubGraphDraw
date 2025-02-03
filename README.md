@@ -9,7 +9,7 @@ This script allows you to "draw" text on your GitHub contributions graph by crea
 ## How It Works
 
 1. **Matrix Representation**  
-   Each character (letter, digit, or symbol) is defined as a 7×5 matrix of characters (`#` for a “filled pixel” and ` ` [space] for an “empty pixel”).  
+   Each character (letter, digit, or symbol) is defined as a 7×5 matrix of characters (`#` for a filled pixel and space for an empty pixel).  
    * The script uses a dictionary (`LETTER_MAP`) to store the pixel representation of each supported character.
 
 2. **Converting a Word to a Matrix**  
@@ -21,12 +21,12 @@ This script allows you to "draw" text on your GitHub contributions graph by crea
    - If the script finds a `#` in row `r`, column `c`, it means a commit (or multiple commits) will be made on the date `start_date + (c*7 + r)` days.
 
 4. **Commit Intensity (Mode)**  
-   - **max**: Creates 5 commits on that day. This usually shows up as the darkest green in GitHub’s contribution graph.  
-   - **random**: Creates a random number of commits from 1 to 5, still visible, but variable.
+   - **max**: Creates 5 commits on that day, resulting in the darkest green on GitHub’s contribution graph.  
+   - **random**: Creates a random number of commits (1 to 5), yielding a variable intensity.
 
 5. **Forcing Dates**  
    - The script uses the `--date` parameter in `git commit` to backdate commits.  
-   - **Warning**: This is a form of rewriting history or artificially inflating commit counts. Make sure to use it responsibly and within GitHub’s Terms of Service.
+   - **Warning**: This can be considered a hack and might artificially inflate commit counts. Use responsibly and in compliance with GitHub’s Terms of Service.
 
 ---
 
@@ -56,6 +56,12 @@ This script allows you to "draw" text on your GitHub contributions graph by crea
 5. **Optional Parameters**
     - `--mode`: Choose between "max" (5 commits per marked day) or "random" (1–5 commits).
     - `--start-date`: Specify a custom start date in YYYY-MM-DD format. If omitted, the script defaults to 52 weeks ago from today.
+    - `--file`: Specify the file to be modified for creating commits (default: progress.txt).
+    - `--commit-hour`: Set the commit hour in HH:MM:SS format (default: 12:00:00).
+    - `--dry-run`: Simulate the execution without making actual changes to the git repository.
+    - `--verbose`: Display detailed logging information.
+    - `--full`: Enable full mode, which makes commits on every day in the contributions graph grid (ignores any word input) [*WARNING: This mode will take quite a while].
+    - `--weeks`: (Used with `--full` mode) Specify the number of weeks (columns) to fill in full mode. The default is 52 weeks.
 
 6. **Push to GitHub**
     ```bash
@@ -73,8 +79,14 @@ python githubdraw.py "TEST" --mode max
 # 2) Draw "DATA" with random commits (1-5)
 python githubdraw.py "DATA" --mode random
 
-# 3) Specify a custom start date
-python githubdraw.py "HELLO" --mode max --start-date 2024-02-01
+# 3) Specify a custom start date and commit hour
+python githubdraw.py "HELLO" --mode max --start-date 2024-02-01 --commit-hour 14:30:00
+
+# 4) Run in dry-run mode with verbose logging
+python githubdraw.py "DRYRUN" --mode max --dry-run --verbose
+
+# 5) Full mode
+python githyubdraw.py --full --verbose
 ```
 
 ## Caution & Disclaimer
