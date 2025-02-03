@@ -49,7 +49,7 @@ This script allows you to "draw" text on your GitHub contributions graph by crea
 
 4. **Run the Script**
     ```bash
-    python draw_github_contributions.py "HELLO" --mode max
+    python githubdraw.py "HELLO" --mode max
     ```
     - This will create multiple commits, using dates in the past, so that the GitHub calendar will display the “HELLO” pattern over the weeks.
 
